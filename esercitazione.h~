@@ -1,0 +1,194 @@
+#include "poisson.c"
+
+#define DEBUG 0
+#define MAX_TESTS 5
+#define MAX_TIME 1500.00
+
+typedef struct{
+	double arrival;
+	double departure;
+	double response;
+}event_t;
+
+/* universal variable declarations */
+event_t* event_list;
+int size_list = 1000;
+double sim_time = 0.00;
+double average_response[MAX_TESTS];
+double sim_times[MAX_TESTS];
+int test_num = 0;
+int average_users = 0;
+
+/* function prototypes */
+void initialise();
+void departure(double velocity, int lines, int start);
+void response();
+double exponential(double velocity);
+void compile_statistics();
+void print_statistics();
+void free_attempt();
+void check(void* pointer);
+void call_poisson();
+void reset();
+
+/*function definitions */
+
+/* initialise arrival times from file */
+void initialise(){
+	FILE* poisson_list;
+	int num_entries = 0, event_num;
+	double storage = 0.00;
+
+ /*reset simulation variables */
+	sim_time = 0.00;
+	size_list = 1000;
+
+ /*initialise poisson arrival times */
+	poisson_list = fopen("poisson_timeline_data.txt", "r");
+	event_list = (event_t*)malloc(size_list*sizeof(event_t));
+	
+	check(event_list);
+
+ /* store arrival times */
+	while (storage <= MAX_TIME){
+		if(num_entries >= size_list){
+			size_list = size_list*2;
+			event_list = realloc(event_list, size_list*sizeof(event_t));
+			check(event_list);
+		}
+		
+		fscanf(poisson_list, "%lf %d", &storage, &event_num);
+		event_list[num_entries].arrival = storage;
+		num_entries++;
+	}
+	
+	size_list = num_entries;
+	average_users += num_entries;
+	
+	fclose(poisson_list);
+}
+
+/* record exponential departure times for events listed in event_list */
+void departure(double velocity, int lines, int start){
+	int i = 0;
+	
+	sim_time = event_list[start].arrival;
+	event_list[start].departure = sim_time + exponential(velocity);
+	
+	for ( i = start + lines; i < size_list; i+= lines){
+		if( event_list[i].arrival < event_list[i - lines].departure ){
+			sim_time = event_list[i - lines].departure;
+		}
+		else{
+			sim_time = event_list[i].arrival;
+		}
+		event_list[i].departure = sim_time + exponential(velocity);
+	}
+}
+
+/*record response time for each event in event_list */
+void response(){
+	int i = 0;
+	
+	for(i = 0; i < size_list; i++){
+		event_list[i].response = event_list[i].departure - 
+													event_list[i].arrival;
+	}
+}
+
+/*compile statistical information from events list */
+void compile_statistics(){
+	int i = 0;
+	double average_time = 0.00;
+	
+	for(i = 0; i < size_list; i++){
+		average_time += event_list[i].response;
+	}
+	
+	average_time /= size_list;
+	average_response[test_num] = average_time;
+	sim_times[test_num] = sim_time;
+	test_num ++;
+}
+
+/* free array of times after each simulation attempt and reset other arrays*/
+void free_attempt(){
+	
+	free(event_list);
+}
+
+/*Sample from exponential distribution, taken from simulamm1.c, A. Marin*/
+double exponential(double velocity) {
+  return -log(rand()*1.0 / RAND_MAX)/velocity;
+}
+
+/* check pointer returned by malloc/realloc isn't void */
+void check(void* pointer){
+	if(!pointer){
+		fprintf(stderr, "Pointer allocation failed, simulation terminated");
+		exit(EXIT_FAILURE);
+	}
+}
+
+/*call poisson simulation program to randomise data set, taken from quoted 
+source */
+void call_poisson(){
+  char data_filename[80];
+  FILE *data;
+  int event_num = 20000, i, seed;
+  double lambda, *t, *w, w_ave, w_max, w_min;
+
+  lambda = (double)(rand()%1000)/100.00;
+  seed = 123456789;
+  if(DEBUG){
+  	  fprintf ( stderr, "\n" );
+  	  fprintf ( stderr, "  LAMBDA = %g\n", lambda );
+  	  fprintf ( stderr, "  EVENT_NUM = %d\n", event_num );
+  }	  
+
+  t = ( double * ) malloc ( ( event_num + 1 ) * sizeof ( double ) );
+  w = ( double * ) malloc ( ( event_num + 1 ) * sizeof ( double ) );
+  poisson_fixed_events ( lambda, event_num, &seed, t, w );
+
+  w_min = r8vec_min ( event_num + 1, w );
+  w_max = r8vec_max ( event_num + 1, w );
+  w_ave = r8vec_mean ( event_num + 1, w );
+/*
+  Create the data file.
+*/
+  strcpy ( data_filename, "poisson_timeline_data.txt" );
+
+  data = fopen ( data_filename, "wt" );
+
+  for ( i = 0; i <= event_num; i++ )
+  {
+    fprintf ( data, "  %g  %d\n", t[i], i );
+  }
+  fclose ( data );
+
+}
+
+/*print statistical information for given test*/
+void print_statistics(){
+	int i = 0;
+	
+	for( i = 0; i < MAX_TESTS; i++){
+	fprintf(stderr, "  Test %d :\n  Simulated time: %f, Average Response: %f\n", 
+			i+1, sim_times[i],average_response[i]);
+	  
+	}
+	fprintf(stderr, "\n  Average number of users = %d\n\n",
+		average_users/MAX_TESTS);
+}
+
+/* reset variables unable to be reset in initialise */
+void reset(){
+	int i = 0;
+	
+	for( i = 0; i< MAX_TESTS; i++){
+		average_response[i] = 0.00;
+		sim_times[i] = 0.00;
+	}
+	
+	test_num = 0;
+}
